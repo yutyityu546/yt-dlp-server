@@ -20,15 +20,16 @@ def extract_id(url: str):
 @app.get("/stream")
 async def get_stream(url: str):
     video_id = extract_id(url)
+    clean_url = f"https://www.youtube.com/watch?v={video_id}"
     
-    # 1. Забираем метаданные трека без блокировок
     title = "YouTube Track"
     artist = "Music"
     cover = f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg"
     
-    async with httpx.AsyncClient(timeout=10.0) as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        # Метаданные трека
         try:
-            meta_res = await client.get(f"https://noembed.com/embed?url=https://www.youtube.com/watch?v={video_id}")
+            meta_res = await client.get(f"https://noembed.com/embed?url={clean_url}")
             if meta_res.status_code == 200:
                 meta = meta_res.json()
                 raw_title = meta.get("title", "")
@@ -42,29 +43,37 @@ async def get_stream(url: str):
         except Exception:
             pass
 
-        # 2. Быстрые публичные шлюзы потоков (не банятся Google)
-        gateways = [
-            f"https://pipedapi.kavin.rocks/streams/{video_id}",
-            f"https://api.piped.privacydev.net/streams/{video_id}",
-            f"https://pipedapi.tokhmi.xyz/streams/{video_id}"
+        # Живые инстансы Cobalt API
+        instances = [
+            "https://api.cobalt.tools",
+            "https://cobalt-api.kwiatekm.tokyo",
+            "https://api.wuk.sh"
         ]
 
-        for gw in gateways:
+        payload = {
+            "url": clean_url,
+            "downloadMode": "audio",
+            "audioFormat": "mp3"
+        }
+        headers = {
+            "Accept": "application/json",
+            "Content-Type": "application/json"
+        }
+
+        for inst in instances:
             try:
-                r = await client.get(gw)
+                r = await client.post(f"{inst}/", json=payload, headers=headers)
                 if r.status_code == 200:
                     data = r.json()
-                    audio_streams = data.get("audioStreams", [])
-                    if audio_streams:
-                        # Берем лучший аудиопоток
-                        audio_url = audio_streams[-1].get("url")
+                    stream_url = data.get("url")
+                    if stream_url:
                         return {
                             "title": title,
                             "artist": artist,
                             "cover": cover,
-                            "stream_url": audio_url
+                            "stream_url": stream_url
                         }
             except Exception:
                 continue
 
-    raise HTTPException(status_code=500, detail="Не удалось получить аудиопоток. Попробуй другую ссылку.")
+    raise HTTPException(status_code=500, detail="Ошибка получения аудиопотока через шлюз")
